@@ -7,6 +7,7 @@ var commonHeader = `
 #include <pthread.h>
 #include <setjmp.h>
 #include <signal.h>
+#include <dirent.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -16,7 +17,70 @@ var commonHeader = `
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
+#include <sys/mount.h>
+#include <sys/resource.h>
+#include <sys/time.h>
 #include <unistd.h>
+#include <errno.h>
+#include <stdarg.h>
+#include <sys/prctl.h>
+#include <grp.h>
+#include <sys/wait.h>
+#include <linux/capability.h>
+
+const int kFailStatus = 67;
+const int kErrorStatus = 68;
+const int kRetryStatus = 69;
+
+__attribute__((noreturn)) void fail(const char* msg, ...)
+{
+	int e = errno;
+	fflush(stdout);
+	va_list args;
+	va_start(args, msg);
+	vfprintf(stderr, msg, args);
+	va_end(args);
+	fprintf(stderr, " (errno %d)\n", e);
+	exit(kFailStatus);
+}
+
+#if defined(SYZ_EXECUTOR)
+__attribute__((noreturn)) void error(const char* msg, ...)
+{
+	fflush(stdout);
+	va_list args;
+	va_start(args, msg);
+	vfprintf(stderr, msg, args);
+	va_end(args);
+	fprintf(stderr, "\n");
+	exit(kErrorStatus);
+}
+#endif
+
+__attribute__((noreturn)) void exitf(const char* msg, ...)
+{
+	int e = errno;
+	fflush(stdout);
+	va_list args;
+	va_start(args, msg);
+	vfprintf(stderr, msg, args);
+	va_end(args);
+	fprintf(stderr, " (errno %d)\n", e);
+	exit(kRetryStatus);
+}
+
+static int flag_debug;
+
+void debug(const char* msg, ...)
+{
+	if (!flag_debug)
+		return;
+	va_list args;
+	va_start(args, msg);
+	vfprintf(stdout, msg, args);
+	va_end(args);
+	fflush(stdout);
+}
 
 __thread int skip_segv;
 __thread jmp_buf segv_env;
@@ -50,10 +114,13 @@ static void install_segv_handler()
 static uintptr_t syz_open_dev(uintptr_t a0, uintptr_t a1, uintptr_t a2)
 {
 	if (a0 == 0xc || a0 == 0xb) {
+		
+		
 		char buf[128];
 		sprintf(buf, "/dev/%s/%d:%d", a0 == 0xc ? "char" : "block", (uint8_t)a1, (uint8_t)a2);
 		return open(buf, O_RDWR, 0);
 	} else {
+		
 		char buf[1024];
 		char* hash;
 		strncpy(buf, (char*)a0, sizeof(buf));
@@ -68,6 +135,7 @@ static uintptr_t syz_open_dev(uintptr_t a0, uintptr_t a1, uintptr_t a2)
 
 static uintptr_t syz_open_pts(uintptr_t a0, uintptr_t a1)
 {
+	
 	int ptyno = 0;
 	if (ioctl(a0, TIOCGPTN, &ptyno))
 		return -1;
@@ -78,6 +146,7 @@ static uintptr_t syz_open_pts(uintptr_t a0, uintptr_t a1)
 
 static uintptr_t syz_fuse_mount(uintptr_t a0, uintptr_t a1, uintptr_t a2, uintptr_t a3, uintptr_t a4, uintptr_t a5)
 {
+	
 	uint64_t target = a0;
 	uint64_t mode = a1;
 	uint64_t uid = a2;
@@ -97,11 +166,13 @@ static uintptr_t syz_fuse_mount(uintptr_t a0, uintptr_t a1, uintptr_t a2, uintpt
 	if (mode & 2)
 		strcat(buf, ",allow_other");
 	syscall(SYS_mount, "", target, "fuse", flags, buf);
+	
 	return fd;
 }
 
 static uintptr_t syz_fuseblk_mount(uintptr_t a0, uintptr_t a1, uintptr_t a2, uintptr_t a3, uintptr_t a4, uintptr_t a5, uintptr_t a6, uintptr_t a7)
 {
+	
 	uint64_t target = a0;
 	uint64_t blkdev = a1;
 	uint64_t mode = a2;
@@ -127,6 +198,7 @@ static uintptr_t syz_fuseblk_mount(uintptr_t a0, uintptr_t a1, uintptr_t a2, uin
 	if (mode & 2)
 		strcat(buf, ",allow_other");
 	syscall(SYS_mount, blkdev, target, "fuseblk", flags, buf);
+	
 	return fd;
 }
 
@@ -146,5 +218,257 @@ static uintptr_t execute_syscall(int nr, uintptr_t a0, uintptr_t a1, uintptr_t a
 	case __NR_syz_fuseblk_mount:
 		return syz_fuseblk_mount(a0, a1, a2, a3, a4, a5, a6, a7);
 	}
+}
+
+static void setup_main_process() {
+	
+	
+	
+	struct sigaction sa;
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = SIG_IGN;
+	syscall(SYS_rt_sigaction, 0x20, &sa, NULL, 8);
+	syscall(SYS_rt_sigaction, 0x21, &sa, NULL, 8);
+	install_segv_handler();
+
+	char tmpdir_template[] = "./syzkaller.XXXXXX";
+	char* tmpdir = mkdtemp(tmpdir_template);
+	if (!tmpdir)
+		fail("failed to mkdtemp");
+	if (chdir(tmpdir))
+		fail("failed to chdir");
+}
+
+static void loop();
+
+#if defined(SYZ_EXECUTOR) || defined(SYZ_SANDBOX_NONE)
+static int do_sandbox_none()
+{
+	int pid = fork();
+	if (pid)
+		return pid;
+	loop();
+	exit(1);
+}
+#endif
+
+#if defined(SYZ_EXECUTOR) || defined(SYZ_SANDBOX_SETUID) || defined(SYZ_SANDBOX_NAMESPACE)
+static void sandbox_common()
+{
+	prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0);
+	setpgrp();
+	setsid();
+
+	struct rlimit rlim;
+	rlim.rlim_cur = rlim.rlim_max = 128 << 20;
+	setrlimit(RLIMIT_AS, &rlim);
+	rlim.rlim_cur = rlim.rlim_max = 1 << 20;
+	setrlimit(RLIMIT_FSIZE, &rlim);
+	rlim.rlim_cur = rlim.rlim_max = 1 << 20;
+	setrlimit(RLIMIT_STACK, &rlim);
+	rlim.rlim_cur = rlim.rlim_max = 0;
+	setrlimit(RLIMIT_CORE, &rlim);
+
+	
+	unshare(CLONE_NEWNS);
+	unshare(CLONE_NEWIPC);
+	unshare(CLONE_IO);
+}
+#endif
+
+#if defined(SYZ_EXECUTOR) || defined(SYZ_SANDBOX_SETUID)
+static int do_sandbox_setuid()
+{
+	int pid = fork();
+	if (pid)
+		return pid;
+
+	sandbox_common();
+
+	const int nobody = 65534;
+	if (setgroups(0, NULL))
+		fail("failed to setgroups");
+	
+	
+	if (syscall(SYS_setresgid, nobody, nobody, nobody))
+		fail("failed to setresgid");
+	if (syscall(SYS_setresuid, nobody, nobody, nobody))
+		fail("failed to setresuid");
+
+	loop();
+	exit(1);
+}
+#endif
+
+#if defined(SYZ_EXECUTOR) || defined(SYZ_SANDBOX_NAMESPACE)
+static int real_uid;
+static int real_gid;
+static char sandbox_stack[1 << 20];
+
+static bool write_file(const char* file, const char* what, ...)
+{
+	char buf[1024];
+	va_list args;
+	va_start(args, what);
+	vsnprintf(buf, sizeof(buf), what, args);
+	va_end(args);
+	buf[sizeof(buf) - 1] = 0;
+	int len = strlen(buf);
+
+	int fd = open(file, O_WRONLY | O_CLOEXEC);
+	if (fd == -1)
+		return false;
+	if (write(fd, buf, len) != len) {
+		close(fd);
+		return false;
+	}
+	close(fd);
+	return true;
+}
+
+static int namespace_sandbox_proc(void* arg)
+{
+	sandbox_common();
+
+	
+	write_file("/proc/self/setgroups", "deny");
+	if (!write_file("/proc/self/uid_map", "0 %d 1\n", real_uid))
+		fail("write of /proc/self/uid_map failed");
+	if (!write_file("/proc/self/gid_map", "0 %d 1\n", real_gid))
+		fail("write of /proc/self/gid_map failed");
+
+	if (mkdir("./syz-tmp", 0777))
+		fail("mkdir(syz-tmp) failed");
+	if (mount("", "./syz-tmp", "tmpfs", 0, NULL))
+		fail("mount(tmpfs) failed");
+	if (mkdir("./syz-tmp/newroot", 0777))
+		fail("mkdir failed");
+	if (mkdir("./syz-tmp/newroot/dev", 0700))
+		fail("mkdir failed");
+	if (mount("/dev", "./syz-tmp/newroot/dev", NULL, MS_BIND | MS_REC | MS_PRIVATE, NULL))
+		fail("mount(dev) failed");
+	if (mkdir("./syz-tmp/pivot", 0777))
+		fail("mkdir failed");
+	if (syscall(SYS_pivot_root, "./syz-tmp", "./syz-tmp/pivot")) {
+		debug("pivot_root failed");
+		if (chdir("./syz-tmp"))
+			fail("chdir failed");
+	} else {
+		if (chdir("/"))
+			fail("chdir failed");
+		if (umount2("./pivot", MNT_DETACH))
+			fail("umount failed");
+	}
+	if (chroot("./newroot"))
+		fail("chroot failed");
+	if (chdir("/"))
+		fail("chdir failed");
+
+	
+	
+	
+	
+	__user_cap_header_struct cap_hdr = {};
+	__user_cap_data_struct cap_data[2] = {};
+	cap_hdr.version = _LINUX_CAPABILITY_VERSION_3;
+	cap_hdr.pid = getpid();
+	if (syscall(SYS_capget, &cap_hdr, &cap_data))
+		fail("capget failed");
+	cap_data[0].effective &= ~(1 << CAP_SYS_PTRACE);
+	cap_data[0].permitted &= ~(1 << CAP_SYS_PTRACE);
+	cap_data[0].inheritable &= ~(1 << CAP_SYS_PTRACE);
+	if (syscall(SYS_capset, &cap_hdr, &cap_data))
+		fail("capset failed");
+
+	loop();
+	exit(1);
+}
+
+static int do_sandbox_namespace()
+{
+	real_uid = getuid();
+	real_gid = getgid();
+	return clone(namespace_sandbox_proc, &sandbox_stack[sizeof(sandbox_stack) - 8],
+		     CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWUTS | CLONE_NEWNET, NULL);
+}
+#endif
+
+static void remove_dir(const char* dir)
+{
+	DIR* dp;
+	struct dirent* ep;
+	int iter = 0;
+retry:
+	dp = opendir(dir);
+	if (dp == NULL) {
+		if (errno == EMFILE) {
+			
+			
+			
+			exitf("opendir(%s) failed due to NOFILE, exiting");
+		}
+		exitf("opendir(%s) failed", dir);
+	}
+	while ((ep = readdir(dp))) {
+		if (strcmp(ep->d_name, ".") == 0 || strcmp(ep->d_name, "..") == 0)
+			continue;
+		char filename[FILENAME_MAX];
+		snprintf(filename, sizeof(filename), "%s/%s", dir, ep->d_name);
+		struct stat st;
+		if (lstat(filename, &st))
+			exitf("lstat(%s) failed", filename);
+		if (S_ISDIR(st.st_mode)) {
+			remove_dir(filename);
+			continue;
+		}
+		for (int i = 0;; i++) {
+			debug("unlink(%s)\n", filename);
+			if (unlink(filename) == 0)
+				break;
+			if (errno == EROFS) {
+				debug("ignoring EROFS\n");
+				break;
+			}
+			if (errno != EBUSY || i > 100)
+				exitf("unlink(%s) failed", filename);
+			debug("umount(%s)\n", filename);
+			if (umount2(filename, MNT_DETACH))
+				exitf("umount(%s) failed", filename);
+		}
+	}
+	closedir(dp);
+	for (int i = 0;; i++) {
+		debug("rmdir(%s)\n", dir);
+		if (rmdir(dir) == 0)
+			break;
+		if (i < 100) {
+			if (errno == EROFS) {
+				debug("ignoring EROFS\n");
+				break;
+			}
+			if (errno == EBUSY) {
+				debug("umount(%s)\n", dir);
+				if (umount2(dir, MNT_DETACH))
+					exitf("umount(%s) failed", dir);
+				continue;
+			}
+			if (errno == ENOTEMPTY) {
+				if (iter < 100) {
+					iter++;
+					goto retry;
+				}
+			}
+		}
+		exitf("rmdir(%s) failed", dir);
+	}
+}
+
+static uint64_t current_time_ms()
+{
+	struct timespec ts;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &ts))
+		fail("clock_gettime failed");
+	return (uint64_t)ts.tv_sec * 1000 + (uint64_t)ts.tv_nsec / 1000000;
 }
 `
