@@ -20,7 +20,7 @@ import (
 )
 
 func init() {
-	vm.Register("gce", ctor)
+	vm.Register("openstack", ctor)
 }
 
 type instance struct {
@@ -28,7 +28,6 @@ type instance struct {
 	name    string
 	ip      string
 	offset  int64
-	gceKey  string // per-instance private ssh key associated with the instance
 	sshKey  string // ssh key
 	sshUser string
 	workdir string
@@ -40,6 +39,7 @@ var (
 	GCE      *gce.Context
 )
 
+/*
 func initGCE() {
 	var err error
 	GCE, err = gce.NewContext()
@@ -48,9 +48,10 @@ func initGCE() {
 	}
 	Logf(0, "gce initialized: running on %v, internal IP %v, project %v, zone %v", GCE.Instance, GCE.InternalIP, GCE.ProjectID, GCE.ZoneID)
 }
+*/
 
 func ctor(cfg *vm.Config) (vm.Instance, error) {
-	initOnce.Do(initGCE)
+	//initOnce.Do(initGCE)
 	ok := false
 	defer func() {
 		if !ok {
@@ -58,16 +59,19 @@ func ctor(cfg *vm.Config) (vm.Instance, error) {
 		}
 	}()
 
+	// Create OpenStack VM
+	result := exec.Command("openstack", "server", "create", "-f", "value", "--wait", "--key-name", cfg.Sshkey, "--image", cfg.Image, "--flavor", cfg.MachineType, "-nic", cfg.Netid, cfg.Name)
+
 	// Create SSH key for the instance.
-	gceKey := filepath.Join(cfg.Workdir, "key")
-	keygen := exec.Command("ssh-keygen", "-t", "rsa", "-b", "2048", "-N", "", "-C", "syzkaller", "-f", gceKey)
-	if out, err := keygen.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("failed to execute ssh-keygen: %v\n%s", err, out)
-	}
-	gceKeyPub, err := ioutil.ReadFile(gceKey + ".pub")
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %v", err)
-	}
+	//gceKey := filepath.Join(cfg.Workdir, "key")
+	//keygen := exec.Command("ssh-keygen", "-t", "rsa", "-b", "2048", "-N", "", "-C", "syzkaller", "-f", gceKey)
+	//if out, err := keygen.CombinedOutput(); err != nil {
+	//	return nil, fmt.Errorf("failed to execute ssh-keygen: %v\n%s", err, out)
+	//}
+	//gceKeyPub, err := ioutil.ReadFile(gceKey + ".pub")
+	//if err != nil {
+	//	return nil, fmt.Errorf("failed to read file: %v", err)
+	//}
 
 	Logf(0, "deleting instance: %v", cfg.Name)
 	if err := GCE.DeleteInstance(cfg.Name, true); err != nil {
