@@ -62,6 +62,8 @@ func ctor(cfg *vm.Config) (vm.Instance, error) {
 	// Create OpenStack VM
 	result := exec.Command("openstack", "server", "create", "-f", "value", "--wait", "--key-name", cfg.Sshkey, "--image", cfg.Image, "--flavor", cfg.MachineType, "-nic", cfg.Netid, cfg.Name)
 
+	// parse IP address
+
 	// Create SSH key for the instance.
 	//gceKey := filepath.Join(cfg.Workdir, "key")
 	//keygen := exec.Command("ssh-keygen", "-t", "rsa", "-b", "2048", "-N", "", "-C", "syzkaller", "-f", gceKey)
