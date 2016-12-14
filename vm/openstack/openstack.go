@@ -34,10 +34,12 @@ type instance struct {
 	closed  chan bool
 }
 
+/*
 var (
 	initOnce sync.Once
 	GCE      *gce.Context
 )
+*/
 
 /*
 func initGCE() {
@@ -59,10 +61,17 @@ func ctor(cfg *vm.Config) (vm.Instance, error) {
 		}
 	}()
 
+	// TODO sshkey name and sshkey path
+
+	// TODO parse Network name to Net id
+
 	// Create OpenStack VM
-	result := exec.Command("openstack", "server", "create", "-f", "value", "--wait", "--key-name", cfg.Sshkey, "--image", cfg.Image, "--flavor", cfg.MachineType, "-nic", cfg.Netid, cfg.Name)
+	// TODO network id
+	result := exec.Command("openstack", "server", "create", "-f", "shell", "--wait", "--key-name", cfg.Sshkey, "--image", cfg.Image, "--flavor", cfg.MachineType, "-nic", cfg.Netid, cfg.Name)
 
 	// parse IP address
+	re = regexp.MustCompile(`addresses="[^=]*=(.*)"`)
+	ip = re.Find(result)
 
 	// Create SSH key for the instance.
 	//gceKey := filepath.Join(cfg.Workdir, "key")
