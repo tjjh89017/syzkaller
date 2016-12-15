@@ -48,6 +48,7 @@ type Config struct {
 	Executor    string
 	Device      string
 	MachineType string
+	Netid       string
 	Cpu         int
 	Mem         int
 	Debug       bool

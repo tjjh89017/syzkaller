@@ -279,6 +279,7 @@ func CreateVMConfig(cfg *Config, index int) (*vm.Config, error) {
 		Mem:         cfg.Mem,
 		Debug:       cfg.Debug,
 		MachineType: cfg.Machine_Type,
+		Netid:       cfg.Netid,
 	}
 	if len(cfg.Devices) != 0 {
 		vmCfg.Device = cfg.Devices[index]
@@ -321,6 +322,7 @@ func checkUnknownFields(data []byte) (string, error) {
 		"Suppressions",
 		"Initrd",
 		"Machine_Type",
+		"Netid",
 	}
 	f := make(map[string]interface{})
 	if err := json.Unmarshal(data, &f); err != nil {

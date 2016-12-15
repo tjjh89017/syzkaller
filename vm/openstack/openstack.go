@@ -2,18 +2,18 @@
 // Use of this source code is governed by Apache 2 LICENSE that can be found in the LICENSE file.
 
 // Package openstack allows to use OpenStack virtual machines as VMs.
-// It is assumed that syz-manager also runs on GCE as VMs are created in the current project/zone.
 //
 package openstack
 
 import (
 	"fmt"
-	"io/ioutil"
+//	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync"
+//	"sync"
 	"time"
+	"regexp"
 
 	. "github.com/google/syzkaller/log"
 	"github.com/google/syzkaller/vm"
@@ -67,11 +67,14 @@ func ctor(cfg *vm.Config) (vm.Instance, error) {
 
 	// Create OpenStack VM
 	// TODO network id
-	result := exec.Command("openstack", "server", "create", "-f", "shell", "--wait", "--key-name", cfg.Sshkey, "--image", cfg.Image, "--flavor", cfg.MachineType, "-nic", cfg.Netid, cfg.Name)
-
+	cmd := exec.Command("openstack", "server", "create", "-f", "shell", "--wait", "--key-name", "syzkaller", "--image", cfg.Image, "--flavor", cfg.MachineType, "--nic", "net-id=" + cfg.Netid, cfg.Name)
+	result, _ := cmd.CombinedOutput()
 	// parse IP address
-	re = regexp.MustCompile(`addresses="[^=]*=(.*)"`)
-	ip = re.Find(result)
+	re := regexp.MustCompile(`addresses="[^=]*=(.*)"`)
+	ip := re.FindStringSubmatch(string(result[:]))[1]
+	Logf(0, "result: %v", result)
+	Logf(0, "cmd: %v", cmd)
+	Logf(0, "ip: %v", ip)
 
 	// Create SSH key for the instance.
 	//gceKey := filepath.Join(cfg.Workdir, "key")
@@ -83,7 +86,7 @@ func ctor(cfg *vm.Config) (vm.Instance, error) {
 	//if err != nil {
 	//	return nil, fmt.Errorf("failed to read file: %v", err)
 	//}
-
+	/*
 	Logf(0, "deleting instance: %v", cfg.Name)
 	if err := GCE.DeleteInstance(cfg.Name, true); err != nil {
 		return nil, err
@@ -98,23 +101,21 @@ func ctor(cfg *vm.Config) (vm.Instance, error) {
 			GCE.DeleteInstance(cfg.Name, true)
 		}
 	}()
+	*/
+
+	// TODO watiing for VM booted
 	sshKey := cfg.Sshkey
 	sshUser := "root"
-	if sshKey == "" {
-		// Assuming image supports GCE ssh fanciness.
-		sshKey = gceKey
-		sshUser = "syzkaller"
-	}
 	Logf(0, "wait instance to boot: %v (%v)", cfg.Name, ip)
 	if err := waitInstanceBoot(ip, sshKey, sshUser); err != nil {
 		return nil, err
 	}
+	Logf(0, "wait instance to boot end: %v (%v)", cfg.Name, ip)
 	ok = true
 	inst := &instance{
 		cfg:     cfg,
 		name:    cfg.Name,
 		ip:      ip,
-		gceKey:  gceKey,
 		sshKey:  sshKey,
 		sshUser: sshUser,
 		closed:  make(chan bool),
@@ -124,12 +125,12 @@ func ctor(cfg *vm.Config) (vm.Instance, error) {
 
 func (inst *instance) Close() {
 	close(inst.closed)
-	GCE.DeleteInstance(inst.name, false)
+	//GCE.DeleteInstance(inst.name, false)
 	os.RemoveAll(inst.cfg.Workdir)
 }
 
 func (inst *instance) Forward(port int) (string, error) {
-	return fmt.Sprintf("%v:%v", GCE.InternalIP, port), nil
+	return fmt.Sprintf("%v:%v", "tmp_value", port), nil
 }
 
 func (inst *instance) Copy(hostSrc string) (string, error) {
@@ -156,12 +157,13 @@ func (inst *instance) Copy(hostSrc string) (string, error) {
 }
 
 func (inst *instance) Run(timeout time.Duration, stop <-chan bool, command string) (<-chan []byte, <-chan error, error) {
+/*
 	conRpipe, conWpipe, err := vm.LongPipe()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	conAddr := fmt.Sprintf("%v.%v.%v.syzkaller.port=1@ssh-serialport.googleapis.com", GCE.ProjectID, GCE.ZoneID, inst.name)
+//	conAddr := fmt.Sprintf("%v.%v.%v.syzkaller.port=1@ssh-serialport.googleapis.com", GCE.ProjectID, GCE.ZoneID, inst.name)
 	conArgs := append(sshArgs(inst.gceKey, "-p", 9600), conAddr)
 	con := exec.Command("ssh", conArgs...)
 	con.Env = []string{}
@@ -254,6 +256,8 @@ func (inst *instance) Run(timeout time.Duration, stop <-chan bool, command strin
 		merger.Wait()
 	}()
 	return merger.Output, errc, nil
+*/
+	return nil, nil, nil
 }
 
 func waitInstanceBoot(ip, sshKey, sshUser string) error {

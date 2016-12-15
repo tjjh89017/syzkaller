@@ -35,6 +35,7 @@ import (
 	_ "github.com/google/syzkaller/vm/kvm"
 	_ "github.com/google/syzkaller/vm/local"
 	_ "github.com/google/syzkaller/vm/qemu"
+	_ "github.com/google/syzkaller/vm/openstack"
 )
 
 var (
