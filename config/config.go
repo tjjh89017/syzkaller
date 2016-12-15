@@ -51,7 +51,8 @@ type Config struct {
 	// "namespace": create a new namespace for fuzzer using CLONE_NEWNS/CLONE_NEWNET/CLONE_NEWPID/etc,
 	//	requires building kernel with CONFIG_NAMESPACES, CONFIG_UTS_NS, CONFIG_USER_NS, CONFIG_PID_NS and CONFIG_NET_NS.
 
-	Machine_Type string // GCE machine type (e.g. "n1-highcpu-2")
+	Machine_Type string // GCE machine type (e.g. "n1-highcpu-2") or OpenStack Flavor
+	Netid        string // OpenStack Network
 
 	Cover bool // use kcov coverage (default: true)
 	Leak  bool // do memory leak checking
@@ -123,9 +124,14 @@ func parse(data []byte) (*Config, map[int]bool, []*regexp.Regexp, error) {
 			return nil, nil, nil, fmt.Errorf("specify at least 1 adb device")
 		}
 		cfg.Count = len(cfg.Devices)
+	case "openstack":
+		if cfg.Netid == "" {
+			return nil, nil, nil, fmt.Errorf("netid parameter is empty (require for openstack)")
+		}
+		fallthrough
 	case "gce":
 		if cfg.Machine_Type == "" {
-			return nil, nil, nil, fmt.Errorf("machine_type parameter is empty (required for gce)")
+			return nil, nil, nil, fmt.Errorf("machine_type parameter is empty (required for gce or openstack)")
 		}
 		fallthrough
 	default:
