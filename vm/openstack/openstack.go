@@ -108,6 +108,7 @@ func ctor(cfg *vm.Config) (vm.Instance, error) {
 	sshUser := "root"
 	Logf(0, "wait instance to boot: %v (%v)", cfg.Name, ip)
 	if err := waitInstanceBoot(ip, sshKey, sshUser); err != nil {
+		Logf(0, "wait instance to boot %v (%v) failed", cfg.Name, ip)
 		return nil, err
 	}
 	Logf(0, "wait instance to boot end: %v (%v)", cfg.Name, ip)
@@ -126,16 +127,18 @@ func ctor(cfg *vm.Config) (vm.Instance, error) {
 func (inst *instance) Close() {
 	close(inst.closed)
 	//GCE.DeleteInstance(inst.name, false)
+	exec.Command("openstack", "server", "delete", "--wait", inst.name)
 	os.RemoveAll(inst.cfg.Workdir)
 }
 
 func (inst *instance) Forward(port int) (string, error) {
-	return fmt.Sprintf("%v:%v", "tmp_value", port), nil
+	return fmt.Sprintf("%v:%v", "140.131.178.148", port), nil
 }
 
 func (inst *instance) Copy(hostSrc string) (string, error) {
 	vmDst := "./" + filepath.Base(hostSrc)
-	args := append(sshArgs(inst.sshKey, "-P", 22), hostSrc, inst.sshUser+"@"+inst.name+":"+vmDst)
+	args := append(sshArgs(inst.sshKey, "-P", 22), hostSrc, inst.sshUser+"@"+inst.ip+":"+vmDst)
+	Logf(0, "copy args %v", args)
 	cmd := exec.Command("scp", args...)
 	if err := cmd.Start(); err != nil {
 		return "", err
