@@ -72,9 +72,9 @@ func ctor(cfg *vm.Config) (vm.Instance, error) {
 	// parse IP address
 	re := regexp.MustCompile(`addresses="[^=]*=(.*)"`)
 	ip := re.FindStringSubmatch(string(result[:]))[1]
-	Logf(0, "result: %v", result)
-	Logf(0, "cmd: %v", cmd)
-	Logf(0, "ip: %v", ip)
+	//Logf(0, "result: %v", result)
+	//Logf(0, "cmd: %v", cmd)
+	//Logf(0, "ip: %v", ip)
 
 	// Create SSH key for the instance.
 	//gceKey := filepath.Join(cfg.Workdir, "key")
@@ -160,14 +160,13 @@ func (inst *instance) Copy(hostSrc string) (string, error) {
 }
 
 func (inst *instance) Run(timeout time.Duration, stop <-chan bool, command string) (<-chan []byte, <-chan error, error) {
-/*
-	conRpipe, conWpipe, err := vm.LongPipe()
+	/*conRpipe, conWpipe, err := vm.LongPipe()
 	if err != nil {
 		return nil, nil, err
-	}
-
-//	conAddr := fmt.Sprintf("%v.%v.%v.syzkaller.port=1@ssh-serialport.googleapis.com", GCE.ProjectID, GCE.ZoneID, inst.name)
-	conArgs := append(sshArgs(inst.gceKey, "-p", 9600), conAddr)
+	}*/
+/*
+	//conAddr := fmt.Sprintf("%v.%v.%v.syzkaller.port=1@ssh-serialport.googleapis.com", GCE.ProjectID, GCE.ZoneID, inst.name)
+	conArgs := append(sshArgs(inst.sshKey, "-p", 22), inst.sshUser+"@"+inst.ip)
 	con := exec.Command("ssh", conArgs...)
 	con.Env = []string{}
 	con.Stdout = conWpipe
@@ -189,28 +188,31 @@ func (inst *instance) Run(timeout time.Duration, stop <-chan bool, command strin
 		err := con.Wait()
 		conDone <- fmt.Errorf("console connection closed: %v", err)
 	}()
-
+*/
 	sshRpipe, sshWpipe, err := vm.LongPipe()
 	if err != nil {
-		con.Process.Kill()
+		//con.Process.Kill()
 		sshRpipe.Close()
 		return nil, nil, err
 	}
 	if inst.sshUser != "root" {
 		command = fmt.Sprintf("sudo bash -c '%v'", command)
 	}
-	args := append(sshArgs(inst.sshKey, "-p", 22), inst.sshUser+"@"+inst.name, command)
+	Logf(0, "command: %v", command)
+	args := append(sshArgs(inst.sshKey, "-p", 22), inst.sshUser+"@"+inst.ip, command)
+	Logf(0, "ssh args: %v", args)
 	ssh := exec.Command("ssh", args...)
 	ssh.Stdout = sshWpipe
 	ssh.Stderr = sshWpipe
 	if err := ssh.Start(); err != nil {
-		con.Process.Kill()
-		conRpipe.Close()
+		//con.Process.Kill()
+		//conRpipe.Close()
 		sshRpipe.Close()
 		sshWpipe.Close()
+		Logf(0, "failed to connect to instance: %v", err)
 		return nil, nil, fmt.Errorf("failed to connect to instance: %v", err)
 	}
-	sshWpipe.Close()
+	//sshWpipe.Close()
 	sshDone := make(chan error, 1)
 	go func() {
 		err := ssh.Wait()
@@ -218,7 +220,7 @@ func (inst *instance) Run(timeout time.Duration, stop <-chan bool, command strin
 	}()
 
 	merger := vm.NewOutputMerger(nil)
-	merger.Add(conRpipe)
+	//merger.Add(conRpipe)
 	merger.Add(sshRpipe)
 
 	errc := make(chan error, 1)
@@ -233,34 +235,36 @@ func (inst *instance) Run(timeout time.Duration, stop <-chan bool, command strin
 		select {
 		case <-time.After(timeout):
 			signal(vm.TimeoutErr)
-			con.Process.Kill()
+			//con.Process.Kill()
+			Logf(0,"time.After(timeout)")
 			ssh.Process.Kill()
 		case <-stop:
 			signal(vm.TimeoutErr)
-			con.Process.Kill()
+			//con.Process.Kill()
+			Logf(0,"stop")
 			ssh.Process.Kill()
 		case <-inst.closed:
 			signal(fmt.Errorf("instance closed"))
-			con.Process.Kill()
+			//con.Process.Kill()
+			Logf(0,"closed")
 			ssh.Process.Kill()
-		case err := <-conDone:
-			signal(err)
-			ssh.Process.Kill()
+//		case err := <-conDone:
+//			signal(err)
+//			ssh.Process.Kill()
 		case err := <-sshDone:
+			Logf(0,"sshDone")
 			// Check if the instance was terminated due to preemption or host maintenance.
 			time.Sleep(time.Second) // just to avoid any GCE races
-			if !GCE.IsInstanceRunning(inst.name) {
+			/*if !GCE.IsInstanceRunning(inst.name) {
 				Logf(1, "%v: ssh exited but instance is not running", inst.name)
 				err = vm.TimeoutErr
-			}
+			}*/
 			signal(err)
-			con.Process.Kill()
+//			con.Process.Kill()
 		}
 		merger.Wait()
 	}()
 	return merger.Output, errc, nil
-*/
-	return nil, nil, nil
 }
 
 func waitInstanceBoot(ip, sshKey, sshUser string) error {
